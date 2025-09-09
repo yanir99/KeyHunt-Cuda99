@@ -11,7 +11,8 @@
 #include <algorithm>
 #include <iostream>
 #include <cassert>
-#ifndef WIN64
+
+#if !defined(_WIN32) && !defined(_WIN64)
 #include <pthread.h>
 #endif
 
@@ -45,85 +46,119 @@ KeyHunt::KeyHunt(const std::string& inputFile, int compMode, int searchMode, int
 	secp = new Secp256K1();
 	secp->Init();
 
-	// load file
-	FILE* wfd;
-	uint64_t N = 0;
-
-	wfd = fopen(this->inputFile.c_str(), "rb");
+	// --------------------- load file (robust 64-bit) ---------------------
+	FILE* wfd = fopen(this->inputFile.c_str(), "rb");
 	if (!wfd) {
 		printf("%s can not open\n", this->inputFile.c_str());
 		exit(1);
 	}
 
-#ifdef WIN64
-	_fseeki64(wfd, 0, SEEK_END);
-	N = _ftelli64(wfd);
-#else
-	fseek(wfd, 0, SEEK_END);
-	N = ftell(wfd);
-#endif
-
+	// Determine record width
 	int K_LENGTH = 20;
 	if (this->searchMode == (int)SEARCH_MODE_MX)
 		K_LENGTH = 32;
 
-	N = N / K_LENGTH;
-	rewind(wfd);
+	// Get file size in bytes (64-bit safe) and rewind
+	uint64_t fileBytes = 0;
+#if defined(_WIN32) || defined(_WIN64)
+	_fseeki64(wfd, 0, SEEK_END);
+	fileBytes = static_cast<uint64_t>(_ftelli64(wfd));
+	_fseeki64(wfd, 0, SEEK_SET);
+#else
+	fseeko(wfd, 0, SEEK_END);
+	fileBytes = static_cast<uint64_t>(ftello(wfd));
+	fseeko(wfd, 0, SEEK_SET);
+#endif
 
-	DATA = (uint8_t*)malloc(N * K_LENGTH);
-	memset(DATA, 0, N * K_LENGTH);
+	// Sanity: size must be exact multiple of record width
+	if (fileBytes == 0 || (fileBytes % (uint64_t)K_LENGTH) != 0) {
+		fprintf(stderr,
+			"\n[ERROR] Input size = %llu not a multiple of %d bytes.\n"
+			"        Wrong record width or corrupt file?\n"
+			"        XPOINTS requires 32-byte records; hash160 requires 20.\n",
+			(unsigned long long)fileBytes, K_LENGTH);
+		fclose(wfd);
+		exit(1);
+	}
 
-	uint8_t* buf = (uint8_t*)malloc(K_LENGTH);;
+	uint64_t N = fileBytes / (uint64_t)K_LENGTH;
 
+	// Allocate dataset
+	DATA = (uint8_t*)malloc(N * (uint64_t)K_LENGTH);
+	if (!DATA) {
+		fprintf(stderr, "\n[ERROR] Out of memory allocating %llu bytes for input.\n",
+			(unsigned long long)(N * (uint64_t)K_LENGTH));
+		fclose(wfd);
+		exit(1);
+	}
+	memset(DATA, 0, N * (uint64_t)K_LENGTH);
+
+	// Bloom sized for 2*N items, 1e-6 fp rate (as before)
 	bloom = new Bloom(2 * N, 0.000001);
 
-	uint64_t percent = (N - 1) / 100;
+	// Load + build bloom with progress
+	uint64_t percent = (N > 100 ? (N - 1) / 100 : 0);
 	uint64_t i = 0;
+
 	printf("\n");
-	while (i < N && !should_exit) {
-		memset(buf, 0, K_LENGTH);
-		memset(DATA + (i * K_LENGTH), 0, K_LENGTH);
-		if (fread(buf, 1, K_LENGTH, wfd) == K_LENGTH) {
-			bloom->add(buf, K_LENGTH);
-			memcpy(DATA + (i * K_LENGTH), buf, K_LENGTH);
-			if ((percent != 0) && i % percent == 0) {
-				printf("\rLoading      : %llu %%", (i / percent));
-				fflush(stdout);
-			}
+	for (i = 0; i < N && !should_exit; ++i) {
+		uint8_t* dst = DATA + (i * (uint64_t)K_LENGTH);
+		size_t got = fread(dst, 1, (size_t)K_LENGTH, wfd);
+		if (got != (size_t)K_LENGTH) {
+			fprintf(stderr, "\n[ERROR] Short read at record %llu (got %zu, expected %d).\n",
+				(unsigned long long)i, got, K_LENGTH);
+			fclose(wfd);
+			exit(1);
 		}
-		i++;
+		bloom->add(dst, K_LENGTH);
+
+		if (percent && (i % percent) == 0) {
+			printf("\rLoading      : %llu %%", (unsigned long long)(i / percent));
+			fflush(stdout);
+		}
 	}
 	fclose(wfd);
-	free(buf);
 
 	if (should_exit) {
 		delete secp;
 		delete bloom;
-		if (DATA)
-			free(DATA);
+		if (DATA) free(DATA);
 		exit(0);
 	}
 
 	BLOOM_N = bloom->get_bytes();
 	TOTAL_COUNT = N;
-	targetCounter = i;
+	targetCounter = N;
+
+	// Detect and print lexicographic order (ascending/descending)
+	const char* orderStr = "unknown";
+	if (TOTAL_COUNT > 1) {
+		int d = memcmp(DATA, DATA + (TOTAL_COUNT - 1) * (uint64_t)K_LENGTH, K_LENGTH);
+		orderStr = (d <= 0) ? "ascending (lex)" : "descending (lex)";
+	}
+
 	if (coinType == COIN_BTC) {
 		if (searchMode == (int)SEARCH_MODE_MA)
-			printf("Loaded       : %s Bitcoin addresses\n", formatThousands(i).c_str());
+			printf("\rLoaded       : %s Bitcoin addresses (%llu MB)\n",
+				formatThousands(N).c_str(),
+				(unsigned long long)((N * (uint64_t)K_LENGTH) / (1024ull * 1024ull)));
 		else if (searchMode == (int)SEARCH_MODE_MX)
-			printf("Loaded       : %s Bitcoin xpoints\n", formatThousands(i).c_str());
+			printf("\rLoaded       : %s Bitcoin xpoints (%llu MB)\n",
+				formatThousands(N).c_str(),
+				(unsigned long long)((N * (uint64_t)K_LENGTH) / (1024ull * 1024ull)));
 	}
 	else {
-		printf("Loaded       : %s Ethereum addresses\n", formatThousands(i).c_str());
+		printf("\rLoaded       : %s Ethereum addresses (%llu MB)\n",
+			formatThousands(N).c_str(),
+			(unsigned long long)((N * (uint64_t)K_LENGTH) / (1024ull * 1024ull)));
 	}
 
+	printf("Input order  : %s\n", orderStr);
 	printf("\n");
-
 	bloom->print();
 	printf("\n");
 
 	InitGenratorTable();
-
 }
 
 // ----------------------------------------------------------------------------
@@ -219,7 +254,7 @@ double log1(double x)
 void KeyHunt::output(std::string addr, std::string pAddr, std::string pAddrHex, std::string pubKey)
 {
 
-#ifdef WIN64
+#if defined(_WIN32) || defined(_WIN64)
 	WaitForSingleObject(ghMutex, INFINITE);
 #else
 	pthread_mutex_lock(&ghMutex);
@@ -263,7 +298,7 @@ void KeyHunt::output(std::string addr, std::string pAddr, std::string pAddrHex, 
 	if (needToClose)
 		fclose(f);
 
-#ifdef WIN64
+#if defined(_WIN32) || defined(_WIN64)
 	ReleaseMutex(ghMutex);
 #else
 	pthread_mutex_unlock(&ghMutex);
@@ -349,7 +384,7 @@ bool KeyHunt::checkPrivKeyX(Int& key, int32_t incr, bool mode)
 
 // ----------------------------------------------------------------------------
 
-#ifdef WIN64
+#if defined(_WIN32) || defined(_WIN64)
 DWORD WINAPI _FindKeyCPU(LPVOID lpParam)
 {
 #else
@@ -361,7 +396,7 @@ void* _FindKeyCPU(void* lpParam)
 	return 0;
 }
 
-#ifdef WIN64
+#if defined(_WIN32) || defined(_WIN64)
 DWORD WINAPI _FindKeyGPU(LPVOID lpParam)
 {
 #else
@@ -1111,7 +1146,7 @@ void KeyHunt::Search(int nbThread, std::vector<int> gpuId, std::vector<int> grid
 		rangeStart.Add(&rangeDiff);
 		params[i].rangeEnd.Set(&rangeStart);
 
-#ifdef WIN64
+#if defined(_WIN32) || defined(_WIN64)
 		DWORD thread_id;
 		CreateThread(NULL, 0, _FindKeyCPU, (void*)(params + i), 0, &thread_id);
 		ghMutex = CreateMutex(NULL, FALSE, NULL);
@@ -1135,8 +1170,7 @@ void KeyHunt::Search(int nbThread, std::vector<int> gpuId, std::vector<int> grid
 		rangeStart.Add(&rangeDiff);
 		params[nbCPUThread + i].rangeEnd.Set(&rangeStart);
 
-
-#ifdef WIN64
+#if defined(_WIN32) || defined(_WIN64)
 		DWORD thread_id;
 		CreateThread(NULL, 0, _FindKeyGPU, (void*)(params + (nbCPUThread + i)), 0, &thread_id);
 #else
@@ -1145,7 +1179,7 @@ void KeyHunt::Search(int nbThread, std::vector<int> gpuId, std::vector<int> grid
 #endif
 	}
 
-#ifndef WIN64
+#if !defined(_WIN32) && !defined(_WIN64)
 	setvbuf(stdout, NULL, _IONBF, 0);
 #endif
 	printf("\n");
@@ -1195,9 +1229,6 @@ void KeyHunt::Search(int nbThread, std::vector<int> gpuId, std::vector<int> grid
 		int completedBits = ICount.GetBitLength();
 		if (rKey <= 0) {
 			completedPerc = CalcPercantage(ICount, rangeStart, rangeDiff2);
-			//ICount.Mult(&p100);
-			//ICount.Div(&this->rangeDiff2);
-			//completedPerc = std::stoi(ICount.GetBase10());
 		}
 
 		t1 = Timer::get_tick();
@@ -1267,38 +1298,46 @@ std::string KeyHunt::GetHex(std::vector<unsigned char> &buffer)
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
-
-int KeyHunt::CheckBloomBinary(const uint8_t * _xx, uint32_t K_LENGTH)
+int KeyHunt::CheckBloomBinary(const uint8_t* _xx, uint32_t K_LENGTH)
 {
-	if (bloom->check(_xx, K_LENGTH) > 0) {
-		uint8_t* temp_read;
-		uint64_t half, min, max, current; //, current_offset
-		int64_t rcmp;
-		int32_t r = 0;
-		min = 0;
-		current = 0;
-		max = TOTAL_COUNT;
-		half = TOTAL_COUNT;
-		while (!r && half >= 1) {
-			half = (max - min) / 2;
-			temp_read = DATA + ((current + half) * K_LENGTH);
-			rcmp = memcmp(_xx, temp_read, K_LENGTH);
-			if (rcmp == 0) {
-				r = 1;  //Found!!
-			}
-			else {
-				if (rcmp < 0) { //data < temp_read
-					max = (max - half);
-				}
-				else { // data > temp_read
-					min = (min + half);
-				}
-				current = min;
-			}
+	// Bloom can only produce false positives, never false negatives.
+	// If it says "no", we can safely skip the binary search.
+	if (bloom->check(_xx, K_LENGTH) <= 0)
+		return 0;
+
+	// Auto-detect sort direction once per record width
+	static int cached_len = 0;        // 20 or 32
+	static int sort_dir = +1;         // +1 ascending, -1 descending
+	if ((int)K_LENGTH != cached_len) {
+		if (TOTAL_COUNT > 1) {
+			int d = memcmp(DATA, DATA + (TOTAL_COUNT - 1) * (uint64_t)K_LENGTH, K_LENGTH);
+			sort_dir = (d <= 0) ? +1 : -1;
 		}
-		return r;
+		else {
+			sort_dir = +1;
+		}
+		cached_len = (int)K_LENGTH;
 	}
-	return 0;
+
+	uint64_t left  = 0;
+	uint64_t right = TOTAL_COUNT;           // search over [left, right)
+
+	while (left < right) {
+		uint64_t mid = left + (right - left) / 2;
+
+		const uint8_t* rec = DATA + (mid * K_LENGTH);
+		int cmp = memcmp(_xx, rec, K_LENGTH);
+		cmp *= sort_dir;                      // normalize so "ascending" logic works for both
+
+		if (cmp == 0)
+			return 1;                       // found
+
+		if (cmp < 0)
+			right = mid;                    // target is in [left, mid)
+		else
+			left  = mid + 1;                // target is in (mid, right)
+	}
+	return 0;                                // not found
 }
 
 // ----------------------------------------------------------------------------
@@ -1388,16 +1427,5 @@ char* KeyHunt::toTimeStr(int sec, char* timeStr)
 // ((input - min) * 100) / (max - min)
 //double KeyHunt::GetPercantage(uint64_t v)
 //{
-//	//Int val(v);
-//	//mpz_class x(val.GetBase16().c_str(), 16);
-//	//mpz_class r(rangeStart.GetBase16().c_str(), 16);
-//	//x = x - mpz_class(rangeEnd.GetBase16().c_str(), 16);
-//	//x = x * 100;
-//	//mpf_class y(x);
-//	//y = y / mpf_class(r);
-//	return 0;// y.get_d();
+//	return 0;
 //}
-
-
-
-

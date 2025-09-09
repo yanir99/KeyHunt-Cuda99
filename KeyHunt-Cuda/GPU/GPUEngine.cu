@@ -868,34 +868,36 @@ bool GPUEngine::LaunchSEARCH_MODE_SX(std::vector<ITEM>& dataFound, bool spinWait
 
 int GPUEngine::CheckBinary(const uint8_t* _x, int K_LENGTH)
 {
-	uint8_t* temp_read;
-	uint64_t half, min, max, current; //, current_offset
-	int64_t rcmp;
-	int32_t r = 0;
-	min = 0;
-	current = 0;
-	max = TOTAL_COUNT;
-	half = TOTAL_COUNT;
-	while (!r && half >= 1) {
-		half = (max - min) / 2;
-		temp_read = DATA + ((current + half) * K_LENGTH);
-		rcmp = memcmp(_x, temp_read, K_LENGTH);
-		if (rcmp == 0) {
-			r = 1;  //Found!!
-		}
-		else {
-			if (rcmp < 0) { //data < temp_read
-				max = (max - half);
-			}
-			else { // data > temp_read
-				min = (min + half);
-			}
-			current = min;
-		}
-	}
-	return r;
+    // Canonical half-open binary search over lexicographically sorted records.
+    // Uses 64-bit indices/offsets and auto-detects ascending vs descending sort.
+    static int cached_len = 0;    // 20 or 32
+    static int sort_dir   = +1;   // +1 ascending, -1 descending
+
+    if (cached_len != K_LENGTH) {
+        if (TOTAL_COUNT > 1) {
+            const uint8_t* first = DATA;
+            const uint8_t* last  = DATA + (size_t)(TOTAL_COUNT - 1) * (size_t)K_LENGTH;
+            int d = memcmp(first, last, K_LENGTH);
+            sort_dir = (d <= 0) ? +1 : -1;
+        } else {
+            sort_dir = +1;
+        }
+        cached_len = K_LENGTH;
+    }
+
+    uint64_t left  = 0;
+    uint64_t right = TOTAL_COUNT;   // [left, right)
+
+    while (left < right) {
+        uint64_t mid = left + ((right - left) >> 1);        // no overflow
+        const uint8_t* rec = DATA + (size_t)mid * (size_t)K_LENGTH;
+
+        int cmp = memcmp(_x, rec, K_LENGTH);
+        cmp *= sort_dir;                                     // normalize for sort direction
+
+        if (cmp == 0) return 1;                              // found
+        if (cmp < 0)  right = mid;                           // search left half
+        else          left  = mid + 1;                       // search right half
+    }
+    return 0;                                                // not found
 }
-
-
-
-
