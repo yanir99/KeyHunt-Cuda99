@@ -6,7 +6,7 @@
 - *specifically fixes false negatives with large filters (e.g., 100M xpoints)*
 2. Fixed the random (rkey) issue randomizing keys outside of the defined range.
 3. Added a fix to the pubkey_to_xpoint script to take as input also list of subtracted keys.
-4. added the script gen_pubkey_subs.py to generate large lists of subtracted public keys to use with XPOINTS search.
+4. added the script gen_pubkeyComp_subsOnly_bin_MP.py to generate large lists of subtracted public keys to use with XPOINTS search with extra BIN output option (still need to be sorted afterwards)
 5. *Compile using Visual Studio 2019 Community + CUDA 10.1 (patch2)*
 
 
