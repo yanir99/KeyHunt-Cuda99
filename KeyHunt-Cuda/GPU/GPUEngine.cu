@@ -46,8 +46,8 @@ inline void __cudaSafeCall(cudaError err, const char* file, const int line)
 // ---------------------------------------------------------------------------------------
 
 // mode multiple addresses
-__global__ void compute_keys_mode_ma(uint32_t mode, uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES,
-	uint64_t* keys, uint32_t maxFound, uint32_t* found)
+__global__ void compute_keys_mode_ma(uint32_t mode, uint8_t* bloomLookUp, unsigned long long BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys, uint32_t maxFound, uint32_t* found)
+
 {
 
 	int xPtr = (blockIdx.x * blockDim.x) * 8;
@@ -56,8 +56,8 @@ __global__ void compute_keys_mode_ma(uint32_t mode, uint8_t* bloomLookUp, int BL
 
 }
 
-__global__ void compute_keys_comp_mode_ma(uint32_t mode, uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys,
-	uint32_t maxFound, uint32_t* found)
+__global__ void compute_keys_comp_mode_ma(uint32_t mode, uint8_t* bloomLookUp, unsigned long long BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys, uint32_t maxFound, uint32_t* found)
+
 {
 
 	int xPtr = (blockIdx.x * blockDim.x) * 8;
@@ -86,8 +86,8 @@ __global__ void compute_keys_comp_mode_sa(uint32_t mode, uint32_t* hash160, uint
 }
 
 // mode multiple x points
-__global__ void compute_keys_comp_mode_mx(uint32_t mode, uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys,
-	uint32_t maxFound, uint32_t* found)
+__global__ void compute_keys_comp_mode_mx(uint32_t mode, uint8_t* bloomLookUp, unsigned long long BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys, uint32_t maxFound, uint32_t* found)
+
 {
 
 	int xPtr = (blockIdx.x * blockDim.x) * 8;
@@ -109,8 +109,8 @@ __global__ void compute_keys_comp_mode_sx(uint32_t mode, uint32_t* xpoint, uint6
 // ---------------------------------------------------------------------------------------
 // ethereum
 
-__global__ void compute_keys_mode_eth_ma(uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys,
-	uint32_t maxFound, uint32_t* found)
+__global__ void compute_keys_mode_eth_ma(uint8_t* bloomLookUp, unsigned long long BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys, uint32_t maxFound, uint32_t* found)
+
 {
 
 	int xPtr = (blockIdx.x * blockDim.x) * 8;
@@ -239,19 +239,32 @@ GPUEngine::GPUEngine(Secp256K1* secp, int nbThreadGroup, int nbThreadPerGroup, i
 
 	// Allocate memory
 	CudaSafeCall(cudaMalloc((void**)&inputKey, nbThread * 32 * 2));
-	CudaSafeCall(cudaHostAlloc(&inputKeyPinned, nbThread * 32 * 2, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+	CudaSafeCall(cudaHostAlloc(&inputKeyPinned, nbThread * 32 * 2,
+		                       cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
 	CudaSafeCall(cudaMalloc((void**)&outputBuffer, outputSize));
-	CudaSafeCall(cudaHostAlloc(&outputBufferPinned, outputSize, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+	CudaSafeCall(cudaHostAlloc(&outputBufferPinned, outputSize,
+		                       cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-	CudaSafeCall(cudaMalloc((void**)&inputBloomLookUp, BLOOM_SIZE));
-	CudaSafeCall(cudaHostAlloc(&inputBloomLookUpPinned, BLOOM_SIZE, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+	/* ================== BLOOM (64-bit safe) — REPLACE THIS WHOLE SECTION ================== */
+	// Use the *member* (this->BLOOM_SIZE) and pass sizes as size_t to CUDA/memcpy
+	CudaSafeCall(cudaHostAlloc(&inputBloomLookUpPinned,
+			                   (size_t)this->BLOOM_SIZE,
+		                       cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-	memcpy(inputBloomLookUpPinned, BLOOM_DATA, BLOOM_SIZE);
+	memcpy(inputBloomLookUpPinned, BLOOM_DATA, (size_t)this->BLOOM_SIZE);
 
-	CudaSafeCall(cudaMemcpy(inputBloomLookUp, inputBloomLookUpPinned, BLOOM_SIZE, cudaMemcpyHostToDevice));
+	CudaSafeCall(cudaMalloc((void**)&inputBloomLookUp, (size_t)this->BLOOM_SIZE));
+
+	CudaSafeCall(cudaMemcpy(inputBloomLookUp,
+				            inputBloomLookUpPinned,
+			                (size_t)this->BLOOM_SIZE,
+		                    cudaMemcpyHostToDevice));
+
 	CudaSafeCall(cudaFreeHost(inputBloomLookUpPinned));
-	inputBloomLookUpPinned = NULL;
+	inputBloomLookUpPinned = nullptr;
+	/* ================== end BLOOM ================== */
+
 
 	// generator table
 	InitGenratorTable(secp);
