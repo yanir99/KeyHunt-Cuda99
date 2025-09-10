@@ -584,14 +584,19 @@ void KeyHunt::getCPUStartingKey(Int & tRangeStart, Int & tRangeEnd, Int & key, P
 {
 	if (rKey <= 0) {
 		key.Set(&tRangeStart);
-	}
-	else {
-		key.Rand(&tRangeEnd);
+	} else {
+		Int diff(tRangeEnd);       // diff = (tRangeEnd - tRangeStart)
+		diff.Sub(&tRangeStart);
+
+		Int rnd;                   // rnd ∈ [0, diff)
+		rnd.Rand(&diff);
+
+		key.Set(&tRangeStart);     // key = start + rnd
+		key.Add(&rnd);
 	}
 	Int km(&key);
-	km.Add((uint64_t)CPU_GRP_SIZE / 2);
+	km.Add((uint64_t)(CPU_GRP_SIZE / 2));
 	startP = secp->ComputePublicKey(&km);
-
 }
 
 // ----------------------------------------------------------------------------
@@ -881,16 +886,28 @@ void KeyHunt::getGPUStartingKeys(Int & tRangeStart, Int & tRangeEnd, int groupSi
 		tRangeEnd2.Set(&tRangeStart2);
 		tRangeEnd2.Add(&tRangeDiff);
 
-		if (rKey <= 0)
+		// define the thread’s subrange [tRangeStart2, tRangeEnd2)
+		tRangeEnd2.Set(&tRangeStart2);
+		tRangeEnd2.Add(&tRangeDiff);
+
+		if (rKey <= 0) {
 			keys[i].Set(&tRangeStart2);
-		else
-			keys[i].Rand(&tRangeEnd2);
+		} else {
+			Int rnd;                 // rnd ∈ [0, tRangeDiff)
+			rnd.Rand(&tRangeDiff);
+			keys[i].Set(&tRangeStart2);
+			keys[i].Add(&rnd);       // start + rnd
+		}
 
-		tRangeStart2.Add(&tRangeDiff);
-
+		// center of group
 		Int k(keys + i);
-		k.Add((uint64_t)(groupSize / 2));	// Starting key is at the middle of the group
+		k.Add((uint64_t)(groupSize / 2));
 		p[i] = secp->ComputePublicKey(&k);
+
+		// advance to next subrange
+		tRangeStart2.Add(&tRangeDiff);
+		// (tRangeEnd2 will be recomputed at top of next iter)
+
 	}
 
 }
