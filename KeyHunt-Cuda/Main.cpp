@@ -13,7 +13,7 @@
 #include <unistd.h>
 #endif
 
-#define RELEASE "1.07"
+#define RELEASE "99"
 
 using namespace std;
 bool should_exit = false;
@@ -21,7 +21,7 @@ bool should_exit = false;
 // ----------------------------------------------------------------------------
 void usage()
 {
-	printf("KeyHunt-Cuda [OPTIONS...] [TARGETS]\n");
+	printf("KeyHunt-Cuda99 [OPTIONS...] [TARGETS]\n");
 	printf("Where TARGETS is one address/xpont, or multiple hashes/xpoints file\n\n");
 
 	printf("-h, --help                               : Display this message\n");
