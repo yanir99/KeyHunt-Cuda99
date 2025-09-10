@@ -1,3 +1,16 @@
+# Modified and fixed version of the original Keyhunt-Cuda
+1. addressed an issue with false negatives when using bloom filters
+- switched Bloom sizes/indexing to 64-bit end-to-end,
+- kept the Bloom hash combiner in 32-bit (t = a + i*b wraps mod 2³²), and
+- fixed the host binary search (half-open, 64-bit offsets, sort-aware).
+- *specifically fixes false negatives with large filters (e.g., 100M xpoints)*
+2. Fixed the random (rkey) issue randomizing keys outside of the defined range.
+3. Added a fix to the pubkey_to_xpoint script to take as input also list of subtracted keys.
+4. added the script gen_pubkey_subs.py to generate large lists of subtracted public keys to use with XPOINTS search.
+5. *Compile using Visual Studio 2019 Community + CUDA 10.1 (patch2)*
+
+
+
 # KeyHunt-Cuda 
 _Hunt for Bitcoin private keys._
 
@@ -474,7 +487,7 @@ BYE
 ## Building
 ##### Windows
 - Microsoft Visual Studio Community 2019 
-- CUDA version 10.0
+- CUDA version 10.1
 ##### Linux
  - Edit the makefile and set up the appropriate CUDA SDK and compiler paths for nvcc. Or pass them as variables to `make` command.
  - Install libgmp: ```sudo apt install -y libgmp-dev```
@@ -505,10 +518,6 @@ python3 -m pip install base58
 
 ## License
 KeyHunt-Cuda is licensed under GPLv3.
-
-## Donation
-- BTC: bc1qwngus7cv3z45w3xnsxrwru9t705azg4a0mux0h
-- ETH: 0x48bD1aE2B289feDBcCcba0D1591E7f088752bd99
 
 ## __Disclaimer__
 ALL THE CODES, PROGRAM AND INFORMATION ARE FOR EDUCATIONAL PURPOSES ONLY. USE IT AT YOUR OWN RISK. THE DEVELOPER WILL NOT BE RESPONSIBLE FOR ANY LOSS, DAMAGE OR CLAIM ARISING FROM USING THIS PROGRAM.
