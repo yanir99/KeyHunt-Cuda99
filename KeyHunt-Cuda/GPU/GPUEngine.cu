@@ -30,6 +30,7 @@
 #include "GPUBase58.h"
 #include "GPUCompute.h"
 
+
 // ---------------------------------------------------------------------------------------
 #define CudaSafeCall( err ) __cudaSafeCall( err, __FILE__, __LINE__ )
 
