@@ -124,6 +124,8 @@ def main():
     bin_f = open(args.bin_output, 'wb') if args.bin_output else nullcontext()
     # Write header (zero offset)
     txt_f.write(f"{point_to_compressed_hex(P)}  # 0\n")
+    if args.bin_output:
+        bin_f.write(bytes.fromhex(point_to_compressed_hex(P)[2:]))  # include X0 in BIN too
     # Prepare blocks
     block_size = args.block_size
     blocks = [(i, min(i+block_size, max_i+1)) for i in range(1, max_i+1, block_size)]
@@ -142,7 +144,7 @@ def main():
             bin_f.close()
     print(f"Generated {args.output} with {1 + max_i} points.")
     if args.bin_output:
-        print(f"Wrote {max_i} entries to {args.bin_output}.")
+        print(f"Wrote {1 + max_i} entries to {args.bin_output}.")
 
 if __name__ == "__main__":
     main()
