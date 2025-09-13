@@ -22,16 +22,10 @@
 #pragma once
 #include <stdint.h>
 
-extern __device__ uint64_t* _2Gnx;
-extern __device__ uint64_t* _2Gny;
-extern __device__ uint64_t* Gx;
-extern __device__ uint64_t* Gy;
-
-__device__ uint64_t* _2Gnx = NULL;
-__device__ uint64_t* _2Gny = NULL;
-
-__device__ uint64_t* Gx = NULL;
-__device__ uint64_t* Gy = NULL;
+__device__ uint64_t* _2Gnx;
+__device__ uint64_t* _2Gny;
+__device__ uint64_t* Gx;
+__device__ uint64_t* Gy;
 
 // ---------------------------------------------------------------------------------------
 

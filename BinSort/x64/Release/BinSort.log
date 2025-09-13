@@ -3,4 +3,4 @@
   Previous IPDB not found, fall back to full compilation.
   All 14 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
   Finished generating code
-  BinSort.vcxproj -> C:\Users\user\source\repos\KeyHunt-Cuda99\x64\Release\BinSort.exe
+  BinSort.vcxproj -> C:\Users\user\source\repos\KeyHunt-Cuda99-2\x64\Release\BinSort.exe
